@@ -70,7 +70,7 @@ def compute_rsi(data, window=14):
     rsi = 100 - (100 / (1 + rs))
     return rsi
 
-def generate_verdict_report(signals, sector_performance):
+def generate_verdict_report(signals, sector_performance, display_df):
     """Генерирует и выводит сводку и вердикт для каждой интересной акции."""
     if not signals:
         return
@@ -82,19 +82,19 @@ def generate_verdict_report(signals, sector_performance):
 
     for ticker in sorted_tickers:
         sig = signals[ticker]
-        data = sig['data']
+        raw_data = sig['data'] # "Сырые" данные для анализа
+        display_data = display_df.loc[ticker] # Отформатированные данные для вывода
         summary_parts = []
         verdict = ""
 
         # Формируем сводку
-        price_change_percent = float(data['Изменение (%)'].replace('%', ''))
-        if price_change_percent > 0:
-            summary_parts.append(f"Сильный рост ({data['Изменение (%)']})")
+        if raw_data['Изменение (%)'] > 0:
+            summary_parts.append(f"Сильный рост ({display_data['Изменение (%)']})")
         else:
-            summary_parts.append(f"Значительное падение ({data['Изменение (%)']})")
+            summary_parts.append(f"Значительное падение ({display_data['Изменение (%)']})")
 
         if sig['high_volume']:
-            summary_parts.append(f"на аномально высоком объёме ({data['Отношение объёма']})")
+            summary_parts.append(f"на аномально высоком объёме ({display_data['Отношение объёма']})")
 
         if sig['golden_cross']:
             summary_parts.append("после 'Золотого пересечения'")
@@ -109,12 +109,12 @@ def generate_verdict_report(signals, sector_performance):
 
         # Формируем вердикт
         fundamental_verdict = ""
-        pe = float(data['P/E']) if data['P/E'] != 'nan' else None
-        div_yield = float(data['Див. дох. (%)'].replace('%', '')) if data['Див. дох. (%)'] != 'nan%' else None
+        pe = raw_data['P/E']
+        div_yield = raw_data['Див. дох. (%)']
 
-        if pe and 0 < pe < 20 and div_yield and div_yield > 0:
-            fundamental_verdict = "Фундаментально устойчива: компания прибыльна (P/E: {}) и платит дивиденды ({}).".format(data['P/E'], data['Див. дох. (%)'])
-        elif pe is None or pe <= 0:
+        if pd.notna(pe) and 0 < pe < 20 and pd.notna(div_yield) and div_yield > 0:
+            fundamental_verdict = "Фундаментально устойчива: компания прибыльна (P/E: {}) и платит дивиденды ({}).".format(display_data['P/E'], display_data['Див. дох. (%)'])
+        elif pd.isna(pe) or pe <= 0:
             fundamental_verdict = "Высокие фундаментальные риски: компания убыточна."
         else:
             fundamental_verdict = "Смешанные фундаментальные показатели."
@@ -128,14 +128,14 @@ def generate_verdict_report(signals, sector_performance):
         elif sig['macd_sell']:
             technical_verdict = "Технический сигнал к продаже (пересечение MACD)."
         elif sig['oversold'] or sig['bb_reversal']:
-            technical_verdict = "Спекулятивный сигнал к отскоку (RSI: {}).".format(data['RSI (14)'])
+            technical_verdict = "Спекулятивный сигнал к отскоку (RSI: {}).".format(display_data['RSI (14)'])
         elif sig['overbought'] or sig['bb_breakout']:
-            technical_verdict = "Технический риск перегрева (RSI: {}).".format(data['RSI (14)'])
+            technical_verdict = "Технический риск перегрева (RSI: {}).".format(display_data['RSI (14)'])
 
         verdict = f"{technical_verdict} {fundamental_verdict}"
 
         # Добавляем контекст сектора
-        sector = data['Сектор']
+        sector = raw_data['Сектор']
         if sector in sector_performance.index and sector_performance.loc[sector] > 0:
             summary_parts.append(f"в лидирующем секторе '{sector}'")
         elif sector in sector_performance.index:
@@ -327,28 +327,29 @@ def analyze_stocks(tickers, market_state):
         signals = {}
         interesting_tickers = set(golden_cross_stocks) | set(high_volume_stocks.index) | set(overbought_stocks.index) | set(oversold_stocks.index) | set(macd_buy_signal_tickers) | set(macd_sell_signal_tickers) | set(bb_breakout.index) | set(bb_reversal.index)
 
-        # Форматирование для вывода таблицы
-        results_sorted['Изменение ($)'] = results_sorted['Изменение ($)'].map('{:+.2f}'.format)
-        results_sorted['Изменение (%)'] = results_sorted['Изменение (%)'].map('{:+.2f}%'.format)
-        results_sorted['Предыдущее закрытие'] = results_sorted['Предыдущее закрытие'].map('{:.2f}'.format)
-        results_sorted['Последнее закрытие'] = results_sorted['Последнее закрытие'].map('{:.2f}'.format)
-        results_sorted['EMA_20'] = results_sorted['EMA_20'].map('{:.2f}'.format)
-        results_sorted['SMA_50'] = results_sorted['SMA_50'].map('{:.2f}'.format)
-        results_sorted['SMA_200'] = results_sorted['SMA_200'].map('{:.2f}'.format)
-        results_sorted['Объём (вчера)'] = results_sorted['Объём (вчера)'].map('{:,.0f}'.format)
-        results_sorted['Средний объём (30д)'] = results_sorted['Средний объём (30д)'].map('{:,.0f}'.format)
-        results_sorted['RSI (14)'] = results_sorted['RSI (14)'].map('{:.2f}'.format)
-        results_sorted['MACD'] = results_sorted['MACD'].map('{:.2f}'.format)
-        results_sorted['MACD_Signal'] = results_sorted['MACD_Signal'].map('{:.2f}'.format)
-        results_sorted['BB_Upper'] = results_sorted['BB_Upper'].map('{:.2f}'.format)
-        results_sorted['BB_Lower'] = results_sorted['BB_Lower'].map('{:.2f}'.format)
-        results_sorted['P/E'] = results_sorted['P/E'].map('{:.2f}'.format)
-        results_sorted['Див. дох. (%)'] = results_sorted['Див. дох. (%)'].map('{:.2%}'.format)
-        results_sorted['Капитализация'] = results_sorted['Капитализация'].map('{:,.0f}'.format)
-        results_sorted['Отношение объёма'] = results_sorted['Отношение объёма'].map('{:.2f}x'.format)
+        # --- Создание копии для отображения и ее форматирование ---
+        display_df = results_sorted.copy()
+        display_df['Изменение ($)'] = display_df['Изменение ($)'].map('{:+.2f}'.format)
+        display_df['Изменение (%)'] = display_df['Изменение (%)'].map('{:+.2f}%'.format)
+        display_df['Предыдущее закрытие'] = display_df['Предыдущее закрытие'].map('{:.2f}'.format)
+        display_df['Последнее закрытие'] = display_df['Последнее закрытие'].map('{:.2f}'.format)
+        display_df['EMA_20'] = display_df['EMA_20'].map('{:.2f}'.format)
+        display_df['SMA_50'] = display_df['SMA_50'].map('{:.2f}'.format)
+        display_df['SMA_200'] = display_df['SMA_200'].map('{:.2f}'.format)
+        display_df['Объём (вчера)'] = display_df['Объём (вчера)'].map('{:,.0f}'.format)
+        display_df['Средний объём (30д)'] = display_df['Средний объём (30д)'].map('{:,.0f}'.format)
+        display_df['RSI (14)'] = display_df['RSI (14)'].map('{:.2f}'.format)
+        display_df['MACD'] = display_df['MACD'].map('{:.2f}'.format)
+        display_df['MACD_Signal'] = display_df['MACD_Signal'].map('{:.2f}'.format)
+        display_df['BB_Upper'] = display_df['BB_Upper'].map('{:.2f}'.format)
+        display_df['BB_Lower'] = display_df['BB_Lower'].map('{:.2f}'.format)
+        display_df['P/E'] = display_df['P/E'].apply(lambda x: f'{x:.2f}' if pd.notna(x) else 'N/A')
+        display_df['Див. дох. (%)'] = display_df['Див. дох. (%)'].apply(lambda x: f'{x:.2%}' if pd.notna(x) and x > 0 else '0.00%')
+        display_df['Капитализация'] = display_df['Капитализация'].apply(lambda x: f'{x:,.0f}' if pd.notna(x) else 'N/A')
+        display_df['Отношение объёма'] = display_df['Отношение объёма'].map('{:.2f}x'.format)
 
         print("Результаты анализа акций (отсортировано по процентному изменению):")
-        print(results_sorted.to_string())
+        print(display_df.to_string())
         print("\n" + "="*80)
 
         for ticker in interesting_tickers:
@@ -361,14 +362,14 @@ def analyze_stocks(tickers, market_state):
                 'macd_sell': ticker in macd_sell_signal_tickers,
                 'bb_breakout': ticker in bb_breakout.index,
                 'bb_reversal': ticker in bb_reversal.index,
-                'data': results_sorted.loc[ticker]
+                'data': results_sorted.loc[ticker] # Используем исходные, неформатированные данные
             }
 
         # --- Анализ силы секторов ---
         sector_performance = results.groupby('Сектор')['Изменение (%)'].mean().sort_values(ascending=False)
 
         # Передаем данные и сигналы для генерации вердикта
-        generate_verdict_report(signals, sector_performance)
+        generate_verdict_report(signals, sector_performance, display_df)
 
         # --- Вывод рейтинга секторов ---
         print("\n" + "="*30 + " РЕЙТИНГ СЕКТОРОВ " + "="*30)
