@@ -28,7 +28,10 @@ async def get_links(page):
         if link.startswith(BASE_URL):
             # Remove anchors (fragments) to avoid duplicates like #overview
             parsed = urllib.parse.urlparse(link)
-            clean_link = parsed.scheme + "://" + parsed.netloc + parsed.path
+            path = parsed.path
+            if path.endswith('/') and len(path) > 1:
+                path = path.rstrip('/')
+            clean_link = parsed.scheme + "://" + parsed.netloc + path
             unique_links.add(clean_link)
 
     return sorted(list(unique_links))
@@ -66,7 +69,7 @@ async def scrape_page(context, url):
         text_content = main_content.get_text(separator='\n', strip=True)
 
         return {
-            'url': url,
+            'url': page.url, # Return final URL after redirects
             'title': title,
             'content': text_content
         }
@@ -105,7 +108,23 @@ async def main():
         pages_data = await asyncio.gather(*tasks)
 
         # Filter out None results
-        results = [data for data in pages_data if data]
+        valid_data = [data for data in pages_data if data]
+
+        # Deduplicate based on final URL
+        unique_results = {}
+        for data in valid_data:
+            # Normalize final URL for deduplication (strip trailing slash)
+            final_url = data['url']
+            parsed = urllib.parse.urlparse(final_url)
+            path = parsed.path
+            if path.endswith('/') and len(path) > 1:
+                path = path.rstrip('/')
+            clean_final_url = parsed.scheme + "://" + parsed.netloc + path
+
+            if clean_final_url not in unique_results:
+                unique_results[clean_final_url] = data
+
+        results = list(unique_results.values())
 
         # Save to CSV
         with open(OUTPUT_FILE, 'w', newline='', encoding='utf-8') as f:
