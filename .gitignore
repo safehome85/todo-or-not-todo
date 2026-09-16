@@ -1,0 +1,8 @@
+itsm/backend/venv/
+itsm/frontend/node_modules/
+itsm/backend/db.sqlite3
+__pycache__/
+*.py[cod]
+**/*__pycache__
+**/*__pycache__*
+itsm/frontend/build/
